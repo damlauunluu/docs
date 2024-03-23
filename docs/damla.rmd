@@ -1,0 +1,660 @@
+
+---
+title: "Hitters"
+author: "Damla Naz ÜNLÜ"
+date: "2023-11-26"
+output:html_document
+---
+
+##GEREKLİ PAKETLER
+
+Öncelikle gerekli paketler indirip aktif hale getirilir.(eğer daha önce indirilmiş bir paket söz konusu ise yalnızca aktif hale
+getirmek yeterli olacaktır.
+
+```{r}
+library(lmtest)
+library(dplyr)
+library(ggplot2)
+library(broom)
+library(ggpubr)
+library(ISLR)
+
+```
+#ÇOKLU REGRESYON MODELİ
+
+-Verimi import dataset sekmesinden aldım.
+Bu datasette  20 değişkene ilişkin büyük lig oyuncularının 322 gözlemini içeren bir veri setidir.
+AtBat 1986'daki vuruş sayısı,vuruşlar 1986'daki vuruş sayısı,HmRun 1986'daki home run sayısı
+Runs 1986'daki koşu sayısı,RBI 1986'daki vuruş sayısı Yürüyüşler 1986'daki yürüyüş sayısı
+Yıllar Büyük liglerdeki yıl sayısı,CAtBat Kariyeri boyunca vuruş sayısı
+CHits Kariyeri boyunca yaptığı vuruş sayısı
+CHmRun Kariyeri boyunca yaptığı home run sayısı,Runs Kariyeri boyunca yaptığı koşu
+sayısı CRBI Kariyeri boyunca yaptığı vuruş sayısı,CWalks Kariyeri boyunca yaptığı yürüyüş sayısı
+Lig A faktörü ile Oyuncunun 1986 sonundaki ligini gösteren A ve N seviyeleri Klasman
+A faktörü, 1986 sonunda oyuncunun ligini gösteren E ve W seviyeleri,PutOut'lar 1986'daki oyun dışı bırakma sayısı
+Asistler 1986'daki asist sayısı,Hatalar 1986'daki hata sayısı,Maaş 1987 yıllık Açılış gününde binlerce dolar cinsinden maaş
+NewLeague A faktörü, A ve N düzeyleri, oyuncunun 1987 başındaki ligini gösterir.
+
+```{r}
+View(Hitters)
+```
+Burada newlauge değişkenimi N ligini sabit tutarak incelemek istiyorum.
+
+```{r}
+
+df_Hitters<-Hitters[Hitters$NewLeague=="A",]
+nrow(df_Hitters)
+```
+
+```{r}
+names(df_Hitters)
+```
+Veri setimin içindeki değişkenler ekrana yazdırıldı.
+Tahmin edilmek isten AtBat ,bağımsız değişkenler ise hits,hmrun,runs,rbı,walks,crbı,years,chits,chmrun,cruns,cwalks
+olarak alalım.
+
+
+```{r}
+set.seed(145)
+df_Hitters<-df_Hitters[c("AtBat" ,"Hits", "HmRun" ,"Runs", "RBI","Walks","CRBI",
+                         "Years", "CAtBat","CHits","CHmRun", "CRuns","CWalks")]
+View(df_Hitters)
+```
+
+Görüldüğü üzere veri setimde NA değerlerim bulunmuyor.Ben kendim NA değerlerini aiağıdaki gibi
+ürettim.
+
+
+```{r}
+set.seed(145)
+random_indices <- sample(1:322, size = 125) 
+df_Hitters[random_indices, 'Hits'] <- NA
+
+random_indices <- sample(1:322, size = 65) 
+df_Hitters[random_indices, 'HmRun'] <- NA
+
+random_indices <- sample(1:322, size = 184) 
+df_Hitters[random_indices, 'Runs'] <- NA
+
+random_indices <- sample(1:322, size = 164) 
+df_Hitters[random_indices, 'RBI'] <- NA
+
+random_indices <- sample(1:322, size = 103) 
+df_Hitters[random_indices, 'Years'] <- NA
+
+```
+
+```{r}
+cor(df_Hitters)
+
+```
+
+NA değerlerinde korelasyon değerlerine bakılamaz bu nedenle:
+
+
+```{r}
+
+cor(na.omit(df_Hitters))
+```
+
+
+Görüldüğü üzere NA degerlerim silinerek korelasyon hesapladım.
+Korelasyon, iki veya daha fazla değişken arasındaki ilişkinin gücünü ve yönünü ölçen bir istatistiksel kavramdır. 
+Korelasyon, değişkenler arasındaki ilişkinin ne kadar güçlü olduğunu ifade eder. İki değişken arasındaki
+korelasyon, bir değişkenin değeri arttığında diğer değişkenin nasıl bir eğilim gösterdiğini belirtir.
+Korelasyon matrisi incelendiğinde bağımlı değişken (atbat) ile bağımsız değişkenler arasındaki ilşikilerin çoğu 
+pozıtıf yönlü görünüyor. Bunun yanı sıra coklu doğrusal regresyonda dikkat edilmesi gereken bir nokta da
+bağımsız değişkenlerin kendi aralrında ilşkili olma durumları.
+Değişkenler arasındaki ilşkiyi bir de görsel olarak incelersek;
+
+```{r}
+
+pairs(na.omit(df_Hitters),pch=19)
+
+```
+
+Bu grafiklerden de anlaşılacağı üzere pozitif korelasyonlar ön plandadır.
+
+
+##KAYIP GÖZLEMLER
+
+Aşağıda verimdeki kayıp gözlemleri yani missingleri inceleyeceğim:
+
+```{r}
+
+#install.packages('mice')
+library(mice)
+md.pattern(df_Hitters)
+
+```
+
+Burada 2253 tane NA değerim olduğunu görüyorum. 18 tane gözlemde runs değişkenine ait NA değerleri bulunuyor.
+11 gözlemde ise rbı değişkeninde,16 gözlemde ise hem runs hem de rbı NA değerleri içeriyor.11 tane gözlemin 
+ise hiç NA değeri içermediğini görüyoruz.146tane gözlemde tüm değişkenler NA içeriyor gibi yorumlamalarda bulunulabilir.
+
+```{r}
+set.seed(145)
+#mice()
+imputed<-mice(df_Hitters,m=11) #m impute sayısını vermektedir
+```
+
+```{r}
+set.seed(145)
+df_Hitters_Imp<-complete(imputed,3)
+View(df_Hitters_Imp)
+md.pattern(df_Hitters_Imp)
+```
+
+
+```{r}
+set.seed(145)
+View(df_Hitters_Imp)
+
+```
+Burada missing değerlerimi doldurdum.
+
+##MODEL OLUŞTURMA
+
+```{r}
+
+set.seed(145)
+sampleIndex<-sample(1:nrow(df_Hitters_Imp),size=0.8*nrow(df_Hitters_Imp))
+#View(sampleIndex)
+trainset<-df_Hitters_Imp[sampleIndex,]
+testset<-df_Hitters_Imp[-sampleIndex,]
+#View(trainset)
+names(df_Hitters_Imp)
+```
+
+Yazdırdığım değişkenleri dikkate alarak  modelimi oluşturmak istersem:
+
+```{r}
+model1<-lm(AtBat~.,data=trainset)
+model1
+
+```
+
+
+```{r}
+summary(model1)
+
+```
+
+Model1 summmaryını incelediğimde HmRun,Runs,RBI,CRBI,Years,CHmRun değişkenimin p-value değerinin anlamsız olduğunu görüyorum.
+P-value değerlerinin yanındaki yıldızlar modelin anlamlılığını ifade eder.3 yıldız güçlü anlam
+2 yıldız orta anlamlılık tek yıldız zayıf anlamlılığı ifade ederken yanında yıldız olmaması
+model için anlamsız değer olduğunu ifade eder.Buradan da anlaşılmak üzere burada anlamlı
+olmayan değişken Runs değişkeni olarak görülür.
+Model p-value değeri < 0,05 olduğundan anlamlıdır.
+R-Squared değeri 0.9529 gelmiştir bizim için model anlamlıdır.Değişkenleri modelden atılarak 
+yeni bir model kurulmaya çalışılır.
+
+```{r}
+model2<-lm( AtBat~Hits+Walks+CAtBat+
+              CHits+CRuns+CWalks,data=trainset)
+model2
+
+```
+
+```{r}
+summary(model2)
+
+```
+
+
+Model2 oluşturduk.R2 değerinde belirgin bir artış yoktur.Çok küçük miktarda olmuştur.
+Ve oluşturulan model anlamlıdır.Katsayılar yorulandığında örneğin Hits değişkenindeki bir
+birimlik bir artış AtBat üzerinde 3.02 birimliik artışa sebep olur.CWalks değişkenindeki
+1 birimlik bir artış AtBat üzerinde 0.12 birimlik bir azalışa sebep olur.Bu şekilde
+diğer değişkenler hakkında da yorumlamalar yapılabilir.
+
+
+
+```{r}
+AIC(model1,k=12)
+
+```
+
+```{r}
+
+AIC(model2,k=6)
+```
+
+```{r}
+
+BIC(model1)
+```
+
+```{r}
+BIC(model2)
+
+```
+
+
+AIC (Akaike Information Criterion) ve BIC (Bayesian Information Criterion), istatistiksel modellerin karşılaştırılması ve seçimi için 
+kullanılan bilgi kriterleridir. Her ikisi de bir modelin uygunluğu ve karmaşıklığı arasındaki dengeyi değerlendirir, ancak farklı matematiksel yaklaşımları temsil ederler.
+AIC ve BIC değerlendirme ölçütlerine göre model2 daha iyi görünmektedir. Bu durumu birde plot üzerinden inceleyelim;
+
+```{r}
+
+plot(model2)
+```
+
+
+
+İlk grafikte artıkların(residuas) dağılımları hakkında bilgi sahibi oluyoruz.
+İkinci grafikde artıkalrın normal dağılıp dağılmadığı incelenmekte, genel hattıyla noktaların line üzerinde olduğu görülmektedir.Ayrıca bazı gözlemlerin aykırı olabileceği de görülür.Üçüncü grafikte standartlaştırılmış artıklar görülmektedir.Son grafik ise baskınlık grafiğidir. Ama çoğu artığın benzer etkiye sahip olduğu ayrıca cook distance çizgileri de incelendiğinde belirgin artık olmadığı gözlenebilmektedir. Fakat bu durum daha detaylı incelenmelidir.
+Değişen varyansın tespitinde sıklıkla kullanılan testlerden biri Breusch-Pagan testidir.
+Breusch-Pagan testi, regresyon modellerinde heteroskedastisite (değişen varyans) olup olmadığını sınamak için kullanılan bir testtir. Heteroskedastisite, hata terimlerinin varyansının bağımsız değişkenlerin seviyelerine bağlı olarak değiştiği bir durumu ifade eder. Breusch-Pagan testi, bu durumu belirlemek ve regresyon modelinin varsayımlarından birine olan uymasını değerlendirmek amacıyla kullanılır.
+
+```{r}
+library(lmtest)
+
+```
+
+```{r}
+bptest(model2)
+
+```
+Bir regresyon modeli (model2) için öğrenciye yönelik Breusch-Pagan testinin sonuçlarını sağladığınız anlaşılıyor. Breusch-Pagan testi, bir regresyon modelinin artıklarındaki değişen varyansları tespit etmek için kullanılır. Değişen varyans, hata terimlerinin değişkenliğinin bağımsız değişkenlerin tüm seviyelerinde sabit olmadığı durumu ifade eder.
+
+KB = 6,2595: Bu test istatistiğidir. Regresyon modelinizdeki değişen varyansın genel önemini ölçer.
+
+df = 6: Bu, test istatistiğiyle ilişkili serbestlik derecelerini temsil eder. Bu durumda 6'dır.
+
+p değeri = 0,3948: Bu, testle ilişkili p değeridir. Sıfır hipotezinin doğru olduğu varsayılarak (yani eşvarsamalılık varsayılarak), hesaplanan kadar uç bir test istatistiğinin gözlemlenme olasılığını belirtir. Daha yüksek bir p değeri, sıfır hipotezine karşı daha zayıf kanıtlara işaret eder.
+
+Şimdi sonuçları yorumlamak için:
+
+P değeri seçtiğiniz anlamlılık düzeyinden (genellikle 0,05) büyükse, sıfır hipotezini reddetmede başarısız olursunuz. Bu durumda 0,3948'lik bir p değeri 0,05'ten büyüktür.
+
+Dolayısıyla bu sonucu, regresyon modelinizde değişen varyans olduğu sonucuna varmak için yeterli kanıtın olmadığı şeklinde yorumlayabilirsiniz. Veriler, hataların sabit olmayan varyansının varlığına ilişkin güçlü istatistiksel destek sağlamamaktadır.
+
+Özetle, 0,3948'lik p değerine dayanarak, regresyon modelinizde, en azından geleneksel 0,05 anlamlılık düzeyinde, değişen varyans konusunda güçlü bir kanıt olmadığı sonucuna varabilirsiniz.
+
+```{r}
+set.seed(145)
+testset2<-testset[-c(3,4,5,7,8,11)] #veri seti içerisnde indeksler hangi sıradaysa  
+predictions<-predict(model2,testset2)
+head(predictions)
+
+```
+Model2 den elde edilen tahminler görülmektedir.Şimdi metricler incelenirse;
+
+```{r}
+
+library(caret)
+R2(predictions,testset2$AtBat) #tahminler,gerçek değerler
+```
+```{r}
+
+RMSE(predictions,testset2$AtBat)
+```
+
+
+```{r}
+
+MAE(predictions,testset2$AtBat)
+```
+
+##AYKIRI DEĞER KONTROLU
+
+Öncelikle distancleri belirlememiz gerekir.Ve ardından hangi ölçütten (noktadan) sonrası bizim için aykırı değer olucak onu belirlemeliyiz. Bu noktada 2 farklı ölçüt kullanılabilir.
+
+-Eğer herhangi bir distance bütün dist’ların ortalamsının 3 katından daha büyükse aykırı olabilir
+-Eğer herhangi bir distance 4/tüm dist değerinden büyükse aykırı olabilir.
+
+```{r}
+set.seed(145)
+dist<-cooks.distance(model2)
+head(dist)
+
+```
+
+
+```{r}
+
+set.seed(145)
+olcut1<- mean(dist)*3
+olcut2<-4/length(dist)
+olcut1;olcut2
+```
+
+Her iki değerde birbirine oldukça yakın görünmektedir.Ama cook distancle değerleri genelde küçük olduğundan bu fark önemli de olabilir.Her iki olcut içinde ayrı ayrı işlem yaparsak; Şimdi aykırı olan gözlemlerin indexlerini elde edelim;
+
+```{r}
+
+set.seed(145)
+olcut1Index<-which(dist>olcut1)
+olcut2Index<-which(dist>olcut2)
+length(olcut1Index)
+
+```
+
+
+```{r}
+
+set.seed(145)
+
+length(olcut2Index)
+
+```
+
+Olcut1’e göre 24, olcut2’ye göre de 25 tane aykırı değerin var olduğu tespit edilmiştir.Bu noktada aralarından bir tanesi seçilerek model oluşturmak istersek; Olcut1 olsun; Görsel olarakda cook disatnceleri incelersek;
+
+```{r}
+
+plot(1:length(dist),dist,type='p',ylim=range(dist)*c(1,1))
+
+```
+
+```{r}
+#burda grafiği daha detaylı incelemek istersek;
+plot(1:length(dist),dist,type='p',ylim=range(dist)*c(1,0.001))
+
+
+```
+
+Şimdi veri içerisinde bulunan bu aykırı değerleri trainset içerisniden çıkarırsam:
+
+```{r}
+
+set.seed(145)
+trainsetrem<-trainset[-olcut1Index,]
+nrow(trainset)
+
+
+```
+```{r}
+
+set.seed(145)
+
+nrow(trainsetrem)
+
+```
+
+
+##MODEL KARŞILAŞTIRMASI 
+
+Şimdi aykırı değerelerden arınmıs veri ile yeni bir model oluşturup bunu model2 ile karşılaştırırsam:
+
+```{r}
+
+set.seed(145)
+model3<-lm( AtBat~Hits+Walks+CAtBat+
+              CHits+CRuns+CWalks,data=trainsetrem)
+model3
+
+
+```
+
+```{r}
+
+set.seed(145)
+summary(model3)
+```
+
+```{r}
+
+set.seed(145)
+summary(model2)
+
+```
+İki tablo karşılaştığında model üçte R-Squared değerim artmıştır yani model anlamlılığı artış göstermiştir.Residual standart error azalmıştır.Bağımsız değişkenlerim anlamlıdır.Bular istenilen durumlardır.
+
+```{r}
+
+set.seed(145)
+
+bptest(model3)
+
+```
+Sağladığınız öğrencileştirilmiş Breusch-Pagan testi sonuçları için: BP = 7,111: Bu test istatistiğidir.
+
+df = 6: Bu, test istatistiğiyle ilişkili serbestlik derecelerini temsil eder.
+
+p değeri = 0,3107: Bu, testle ilişkili p değeridir. Sıfır hipotezinin doğru olduğu varsayılarak (yani eşvarsamalılık varsayılarak), hesaplanan kadar uç bir test istatistiğinin gözlemlenme olasılığını belirtir.
+
+Şimdi sonuçları yorumlayalım:
+
+Seçtiğiniz anlamlılık düzeyi örneğin 0,05 ise ve p değeri 0,05'ten büyükse sıfır hipotezini reddetme konusunda başarısız olursunuz. Bu durumda 0,3107'lik bir p değeri 0,05'ten büyüktür.
+
+Bu nedenle, p değerine dayanarak sıfır hipotezini reddedecek güçlü bir kanıtın olmadığı sonucuna varabilirsiniz. Bu, 0,05 anlamlılık düzeyinde, regresyon modelinizde anlamlı bir değişen varyans olmadığını gösterir. Veriler, hataların sabit olmayan varyansının varlığına ilişkin güçlü istatistiksel destek sağlamamaktadır.
+
+Özetle, 0,3107'lik bir p değeri, regresyon modelinizde 0,05 anlamlılık düzeyinde değişen varyans konusunda güçlü bir kanıt bulunmadığını gösterir.
+
+```{r}
+
+plot(model3)
+
+```
+
+
+Normal Dağılım grafiği incelendiğinde değerler line çizgisine yaklaşmışlardır.
+Her iki model de karşılaştırıldığında R2 ve Residual standard error dğerleri bakımında model3 daha görünmektedir.Ama bu sonuçlar trainset üzerinden elde edilmiştir. Bu durumun test set üzerinden de gösterilmesi gerekmektedir.
+
+
+```{r}
+AIC(model3,k=6)
+```
+
+```{r}
+
+AIC(model2,k=6)
+```
+
+
+```{r}
+BIC(model3)
+
+```
+
+```{r}
+BIC(model2)
+```
+
+AIC ve BIC kriterleri de değerlendirildiğinde model3’un daha iyi olduğu görülmektedir.Test set üzerinden model değerlendirmesi yaparsak;
+
+```{r}
+
+set.seed(145)
+predictions3<-predict(model3,testset2)
+R2(predictions3,testset2$AtBat) #tahminler,gerçek değerler
+```
+```{r}
+RMSE(predictions3,testset2$AtBat)
+```
+
+```{r}
+MAE(predictions3,testset2$AtBat)
+```
+
+
+```{r}
+
+set.seed(145)
+#karsılaştırma yapmak içim model2 nin sonuçlarını da alalım;
+predictions2<-predict(model2,testset2)
+R2(predictions2,testset2$AtBat) #tahminler,gerçek değerler
+```
+
+```{r}
+RMSE(predictions2,testset2$AtBat)
+```
+
+```{r}
+MAE(predictions2,testset2$AtBat)
+```
+Sonuçları değerlendirirsek, model2 ile model3 arasında testset üzerinden belirgin bir fark görülmemektedir.Train set üzerinde aykırı değerleri çıkardığımız model3 daha, iyi performans göstermiş olsada test set ile iki model arasında belirgin bir fark olmadığı görülmektedir.Bu noktada belki k_fold cross validation yapılıp sonuçlar yeniden değerlendirilebilir.
+
+Ayrıca bu noktada son oluşturalan modelin gerek veri ön işlemesi yapıldığında gerekse varsayımlar kontrol edildiğinde daha iyi olduğu düşünülebilir. Bu fark test verisi üzerinden incelendiğinde belirgin bir şekilde ortaya konulmuş olmasa da (bu durum cross validation ile yeniden gözden geçirilmelidir.) eğitim verisinde daha iyi sonuç verdiği gözlenmiştir.
+
+Bu noktada bir diğer varsayım olan Multicolinearity incelenmelidir.
+
+##ÇOKLU BAĞLANTI SORUNU
+
+Genel anlamda bağımsız değişkenler birbirleriyle yüksek dereceli olarak ilşkili iseler bu durumda çoklu bağlantı sorunu ile karşılaşılabilir.Bunu belirlemek için
+-Öncelikle cor matrisi incelenebilir
+
+-Ve VIF değerleri değerlendirilmelidir.
+
+```{r}
+
+set.seed(145)
+library(car)
+vif(model3)
+```
+VIF>10 olması durumu çoklu bağlantıyı işaret etmektedir.Bu verilerden CAtBat,CHits,CRuns,CWalks veri setinden atılmalıdır.
+
+```{r}
+
+set.seed(145)
+modelvif_1<-lm(AtBat~Hits+Walks
+               ,data=trainsetrem)
+vif(modelvif_1)
+
+```
+
+```{r}
+summary(modelvif_1)
+```
+
+```{r}
+summary(model3)
+```
+
+
+Sonuçlar incelendiğinde çıkarılan değişken sonrası kalan değişkenler arasında bağlantı sorunu görünmemektedir. Bu değişkenin çıkarılması modeli nasıl etkilemiştir sorusuna da R2 değeri model3 ile karşılaştırıldığında biraz azalmış görülmektedir.Residaul st.error değeride bir miktar artmıştır. Model üzerinde belirgin bir iyileştirme sağlanamadığı görülmektedir. Şimdi başka bir değişkenin modelden çıkarılması durumunu inceleyelim; 
+değişkeni modelden çıkararak deneme yaparsak;
+
+```{r}
+modelvif_2<-lm(AtBat~Walks+CWalks,data=trainsetrem)
+vif(modelvif_2)
+```
+```{r}
+summary(modelvif_2)
+```
+VIF değerleri daha görünmekte model de daha gerilemiştir.Dolayısıyla bu değişkenlerden en az birinin model de olması gerektiği kanaatine varılabilir.
+
+Şimdi modelleri test veri seti üzerinden değerlendirelim;
+
+##TEST SETİ ÜZERİNDEN MODEL DEĞERLENDİRME
+
+
+
+```{r}
+
+set.seed(145)
+predictionsvif2<-predict(modelvif_2,testset2)
+R2(predictionsvif2,testset2$AtBat) #tahminler,gerçek değerler
+```
+
+```{r}
+RMSE(predictionsvif2,testset2$AtBat)
+```
+
+```{r}
+MAE(predictionsvif2,testset2$AtBat)
+```
+
+```{r}
+predictionsvif1<-predict(modelvif_1,testset2)
+R2(predictionsvif1,testset2$AtBat)#tahminler,gerçek değerler
+```
+
+
+```{r}
+RMSE(predictionsvif1,testset2$AtBat)
+```
+
+
+```{r }
+
+MAE(predictionsvif1,testset2$AtBat)
+```
+Vıf_1 modelinin daha iyi performance gösterdiğini test set üzerinden de görmekteyiz.Burada vif_1 oluşturulurken çıkarılan değişkenler incelenmelidir.Bağlantı
+sorunlarına bakılmalıdır.
+
+##İLİŞKİLİ HATALAR 
+
+Regresyonda ilişkili hatalar (autocorrelated errors), hata terimlerinin zaman, uzay veya başka bir bağlamda birbirleriyle ilişkili olduğu bir durumu ifade eder. Bu durum, regresyon modelinin varsayımlarından biri olan hata terimlerinin bağımsız olması varsayımının ihlal edildiği anlamına gelir.
+
+Eğer hatalar arasında ilişki yoksa hataların ε=0 doğrusu etrafında rastgele dağılması gerekir.Daha iyi inceleyebilmek için,
+
+```{r}
+
+set.seed(145)
+n <- length(residuals(model3))
+plot(tail(residuals(model3),n-1) ~ head(residuals(model3),n-1), xlab=
+expression(hat(epsilon)[i]),ylab=expression(hat(epsilon)[i+1]))
+abline(h=0,v=0,col=grey(0.75))
+
+
+
+```
+
+Bu garfikten otokorelasyon sorunu olmadığı açık bir şekilde görülmektedir.Bu durum farklı şekillerle de desteklenebilir.
+
+
+```{r}
+
+set.seed(145)
+
+summary(lm(tail(residuals(model3),n-1) ~ head(residuals(model3),n-1) -1))
+
+
+```
+
+
+Beklnetimiz modelin anlamlı gözükmemesidir.Görüldüğü üzere bu model anlamlı değildir. Yani iki tip residual arasında doğrusal ilişki söz konusu değildir.Ayrıca Breusch-Godfrey Test’ide otokorelasyon durumununun tespiti için kullanılır.Burda H0 hipotezi hatalar arasında korelasyon yoktur şeklinde kurulur.
+
+```{r}
+
+set.seed(145)
+require(lmtest)
+dwtest(AtBat~Hits+Runs+Walks+CAtBat+
+              CHits+CWalks,data=trainsetrem)
+
+
+```
+
+-Durbin-Watson testi, bir regresyon analizinin artıklarındaki otokorelasyonun varlığını tespit etmek için kullanılan istatistiksel bir testtir. Otokorelasyon, bir regresyon modelinin hata terimleri arasında zamanın farklı noktalarında bir korelasyon olduğunda ortaya çıkar.
+
+-Çıktınızda:DW = 2,0974: Durbin-Watson testi için test istatistiğidir.
+
+-p değeri = 0,7714: Bu, test istatistiğiyle ilişkili p değeridir. Sıfır hipotezinin doğru olduğu varsayılarak, hesaplanan kadar uç bir test istatistiğinin gözlemlenme olasılığını temsil eder. Bu durumda boş hipotez, artıklarda otokorelasyonun olmadığı yönündedir.
+
+-Alternatif hipotez: Gerçek otokorelasyon 0'dan büyüktür: Bu, testin tek taraflı olduğunu, özellikle pozitif otokorelasyonu test ettiğini gösterir.
+
+-Durbin-Watson test istatistiği 0 ila 4 arasında değişir. 2'ye yakın bir değer otokorelasyonun olmadığını gösterirken, 2'den önemli ölçüde düşük değerler pozitif otokorelasyonu, 2'den önemli ölçüde büyük değerler ise negatif otokorelasyonu gösterir.
+
+-p değeri 0,77'dir ve bu, 0,05'lik ortak anlamlılık seviyesinden daha yüksektir. Bu nedenle, genellikle sıfır hipotezini reddetmede başarısız olurum. Bu, regresyon modelinizin artıklarında pozitif otokorelasyon olduğu sonucuna varmak için yeterli kanıt bulunmadığını göstermektedir.
+
+-Yorumun, analizinizin spesifik bağlamına ve seçilen önem düzeyine göre değişebileceğini unutmamak önemlidir. Otokorelasyon bir endişe kaynağıysa, artıkları grafiksel olarak incelemek veya otokorelasyon sorununu çözmek için alternatif modelleri veya yöntemleri değerlendirmek isteyebilirsiniz.
+
+```{r}
+
+set.seed(145)
+
+library(lmtest)
+model3 <- lm( AtBat~Hits+Walks+CAtBat+
+              CHits+CRuns+CWalks,data=trainsetrem)
+lmtest::bgtest(model3, order = 3)
+
+```
+
+-Breusch-Godfrey testi, bir regresyon modelinin artıklarındaki seri korelasyonu (otokorelasyon) tespit etmeye yönelik başka bir testtir ve Durbin-Watson testini daha yüksek dereceli otokorelasyonu test edecek şekilde genişletir. Test istatistiği ki-kare dağılımını takip eder.
+
+-Çıktınızda:LM testi = 0,8642: Breusch-Godfrey testi için test istatistiğidir.
+df = 3: Bunlar test istatistiğiyle ilişkili serbestlik dereceleridir. Bu durumda 3 görünüyor.
+-p değeri = 0,82: Bu, test istatistiğiyle ilişkili p değeridir. Sıfır hipotezinin doğru olduğu varsayılarak, hesaplanan kadar uç bir test istatistiğinin gözlemlenme olasılığını temsil eder. Bu bağlamda boş hipotez tipik olarak belirtilen sıraya kadar seri korelasyonun olmadığı yönündedir.
+
+-P değeri 0,05'lik ortak anlamlılık seviyesinden daha büyük olan 0,75 olduğundan, genellikle sıfır hipotezini reddetmede başarısız olurum. Bu, modelinizin artıklarında 3. sıraya kadar seri korelasyon olduğu sonucuna varmak için yeterli kanıt olmadığını göstermektedir.
+
+Başka bir deyişle, Breusch-Godfrey testine göre 3 gecikmeye kadar artıklarda anlamlı bir otokorelasyon olduğuna dair güçlü bir gösterge bulunmamaktadır.
+
+Herhangi bir istatistiksel testte olduğu gibi, analizinizin özel bağlamını, testin altında yatan varsayımları ve sonuçların regresyon modelinize etkilerini dikkate almak önemlidir. Seri korelasyon bir sorun teşkil ediyorsa alternatif modelleme yaklaşımlarını araştırmanız veya diğer teşhis testlerini değerlendirmeniz gerekebilir.
+Burda model derecesi değiştirilerek daha yüksek derecen farklarda incelenebilir.
+
+
+
